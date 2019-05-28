@@ -74,7 +74,7 @@ def read_dump(path):
     with gzip.open(str(path), 'rb') as f:
         text = f.read().decode()
     for line in text.splitlines():
-        code, url = line.split('|')
+        code, url = line.split('|', 1)
         parsed = urlparse(url)
         data[parsed.netloc] += 1
 
