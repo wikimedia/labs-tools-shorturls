@@ -24,6 +24,7 @@ from flask_bootstrap import Bootstrap
 import functools
 import gzip
 from io import BytesIO
+import json
 import matplotlib; matplotlib.use('svg')  # noqa
 import matplotlib.pyplot as plot
 from pathlib import Path
@@ -32,6 +33,7 @@ from urllib.parse import urlparse
 app = Flask(__name__)
 Bootstrap(app)
 DUMPS = Path('/public/dumps/public/other/shorturls')
+CACHE = Path(__file__).parent / 'cache'
 
 
 @app.context_processor
@@ -45,7 +47,7 @@ def inject_to_templates():
 @app.route('/')
 def main():
     stats = read_dump(latest_dump())
-    total = sum(stats.values())
+    total = stats.pop('total')
     stats = sorted(stats.items(), key=lambda x: x[1], reverse=True)
     return render_template('main.html', stats=stats, total=total)
 
@@ -59,7 +61,15 @@ def latest_dump():
     return list_dumps()[-1]
 
 
+def cached_name(path):
+    return CACHE / (path.name + '.json')
+
+
 def read_dump(path):
+    cache = cached_name(path)
+    if cache.exists():
+        with open(str(cache)) as f:
+            return json.load(f)
     data = defaultdict(int)
     with gzip.open(str(path), 'rb') as f:
         text = f.read().decode()
@@ -68,12 +78,12 @@ def read_dump(path):
         parsed = urlparse(url)
         data[parsed.netloc] += 1
 
+    total = sum(data.values())
+    data['total'] = total
+    with open(str(cache), 'w') as f:
+        json.dump(data, f)
+
     return data
-
-
-def read_totals_dump(path):
-    with gzip.open(str(path), 'rb') as f:
-        return len(f.readlines())
 
 
 @app.route('/chart.svg')
@@ -83,7 +93,7 @@ def chart():
     for dump in list_dumps():
         datepart = dump.name[10:-3]
         date = datetime.strptime(datepart, '%Y%m%d')
-        total = read_totals_dump(dump)
+        total = read_dump(dump)['total']
         x.append(date)
         y.append(total)
 
