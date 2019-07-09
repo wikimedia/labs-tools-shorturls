@@ -21,7 +21,6 @@ from collections import defaultdict
 from datetime import datetime
 from flask import Flask, render_template, make_response
 from flask_bootstrap import Bootstrap
-import functools
 import gzip
 from io import BytesIO
 import json
@@ -52,7 +51,6 @@ def main():
     return render_template('main.html', stats=stats, total=total)
 
 
-@functools.lru_cache()
 def list_dumps():
     return list(sorted(DUMPS.glob('shorturls-*.gz')))
 
