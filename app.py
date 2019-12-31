@@ -19,8 +19,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 from collections import defaultdict
 from datetime import datetime
-from flask import Flask, render_template, make_response
+from flask import Flask, make_response
 from flask_bootstrap import Bootstrap
+from flask_dataapi import DataApi
 import gzip
 from io import BytesIO
 import json
@@ -31,6 +32,7 @@ from urllib.parse import urlparse
 
 app = Flask(__name__)
 Bootstrap(app)
+api = DataApi(app)
 DUMPS = Path('/public/dumps/public/other/shorturls')
 CACHE = Path(__file__).parent / 'cache'
 
@@ -43,8 +45,8 @@ def inject_to_templates():
     }
 
 
-@app.route('/')
-def main():
+@api.route('/')
+def main(render_template):
     stats = read_dump(latest_dump())
     total = stats.pop('total')
     stats = sorted(stats.items(), key=lambda x: x[1], reverse=True)
