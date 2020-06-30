@@ -31,6 +31,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 app = Flask(__name__)
+app.config['BOOTSTRAP_SERVE_LOCAL'] = True
 Bootstrap(app)
 api = DataApi(app)
 DUMPS = Path('/public/dumps/public/other/shorturls')
