@@ -1,15 +1,15 @@
-{% extends "bootstrap/base.html" %}
+{% extends "base" %}
 {% block title %}w.wiki statistics{% endblock %}
 {% block content %}
     <h1 class="text-center">w.wiki statistics</h1>
     <p class="text-center">
         The <a href="https://w.wiki">w.wiki</a> URL shortener allows creating short links to
-        whitelisted Wikimedia-controlled domains. In the latest dump, there were {{format(total, ',')}} short links.
+        approved Wikimedia-controlled domains. In the latest dump, there were {{commafy(num=total)}} short links.
         New data is available weekly.
     </p>
     <div class="row">
         <div class="col-md-6 col-md-offset-3">
-            <img class="img-responsive center-block" src="{{url_for('chart')}}">
+            <img class="img-responsive center-block" src="/chart.svg">
             <table class="table table-responsive table-hover table-bordered">
                 <thead>
                     <tr>
@@ -19,11 +19,11 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for i, stuff in enumerate(stats) %}
+                    {% for stuff in stats %}
                     <tr>
-                        <td>{{i}}</td>
-                        <td>{{stuff[0]}}</td>
-                        <td>{{format(stuff[1], ',')}}</td>
+                        <td>{{loop.index}}</td>
+                        <td>{{stuff.domain}}</td>
+                        <td>{{commafy(num=stuff.count)}}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -32,8 +32,8 @@
         </div>
     </div>
 
-<p class="text-center">
-    Licensed as AGPLv3+. <a href="{{url_for('main_api')}}">API</a>.
-    View the <a href="https://gerrit.wikimedia.org/g/labs/tools/shorturls/">source code</a>, and the <a href="https://dumps.wikimedia.org/other/shorturls/">raw data</a>.
-</p>
+    <p class="text-center">
+        Licensed as AGPLv3+. <a href="/api.json">API</a>.
+        View the <a href="https://gerrit.wikimedia.org/g/labs/tools/shorturls/">source code</a>, and the <a href="https://dumps.wikimedia.org/other/shorturls/">raw data</a>.
+    </p>
 {% endblock %}

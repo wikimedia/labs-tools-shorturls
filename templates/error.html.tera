@@ -1,0 +1,12 @@
+{% extends "base" %}
+{% block title %}error{% endblock %}
+{% block content %}
+    <h1 class="text-center">error</h1>
+    <p class="text-center">
+        {{error}}
+    </p>
+    <p class="text-center">
+        Licensed as AGPLv3+. <a href="/api.json">API</a>.
+        View the <a href="https://gerrit.wikimedia.org/g/labs/tools/shorturls/">source code</a>, and the <a href="https://dumps.wikimedia.org/other/shorturls/">raw data</a>.
+    </p>
+{% endblock %}

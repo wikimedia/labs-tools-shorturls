@@ -1,3 +1,5 @@
 backend: kubernetes
 canonical: True
-type: python3.7
+type: golang111
+extra_args:
+  - www/rust/run.sh
