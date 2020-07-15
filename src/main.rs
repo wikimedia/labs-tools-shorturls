@@ -21,18 +21,25 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use anyhow::Result;
 use chrono::{Date, NaiveDate, TimeZone, Utc};
 use rocket::{http::ContentType, response::Content};
+use rocket_contrib::databases::{redis, redis::Commands};
 use rocket_contrib::json::Json;
 use rocket_contrib::templates::{
     tera::{Result as TeraResult, Value},
     Template,
 };
 use serde::{Deserialize, Serialize};
-use shorturls::{find_data, get_data, IndexTemplate};
-use std::{collections::HashMap, path::PathBuf};
+use shorturls::{find_data, IndexTemplate};
+use std::{collections::HashMap, fs, path::PathBuf};
 use thousands::Separable;
 
 #[macro_use]
 extern crate rocket;
+
+#[macro_use]
+extern crate rocket_contrib;
+
+#[database("cache")]
+struct RedisCache(redis::Connection);
 
 #[derive(Serialize, Deserialize)]
 struct ErrorTemplate {
@@ -40,23 +47,23 @@ struct ErrorTemplate {
 }
 
 #[get("/")]
-fn index() -> Template {
-    match build_index() {
+fn index(conn: RedisCache) -> Template {
+    match build_index(conn) {
         Ok(index) => Template::render("main", index),
         Err(error) => Template::render("error", error),
     }
 }
 
 #[get("/api.json")]
-fn index_api() -> Result<Json<IndexTemplate>> {
+fn index_api(conn: RedisCache) -> Result<Json<IndexTemplate>> {
     // FIXME: Error handling
-    match build_index() {
+    match build_index(conn) {
         Ok(index) => Ok(Json(index)),
         Err(error) => panic!(error.error),
     }
 }
 
-fn build_index() -> Result<IndexTemplate, ErrorTemplate> {
+fn build_index(conn: RedisCache) -> Result<IndexTemplate, ErrorTemplate> {
     let latest = match get_latest_data() {
         Ok(latest) => latest,
         Err(e) => {
@@ -65,7 +72,7 @@ fn build_index() -> Result<IndexTemplate, ErrorTemplate> {
             })
         }
     };
-    match get_data(latest) {
+    match get_data(latest, &conn) {
         Ok(info) => Ok(info),
         Err(e) => Err(ErrorTemplate {
             error: e.to_string(),
@@ -77,6 +84,23 @@ fn get_latest_data() -> Result<PathBuf> {
     Ok(find_data()?.pop().unwrap())
 }
 
+fn get_data(path: PathBuf, conn: &RedisCache) -> Result<IndexTemplate> {
+    let cache_key = format!("shorturls:{}", path.to_str().unwrap());
+    let info: Option<String> = conn.get(&cache_key)?;
+    if let Some(json) = info {
+        // If we can deserialize it, return , otherwise we'll just reread
+        // it from disk
+        if let Ok(val) = serde_json::from_str(&json) {
+            return Ok(val);
+        }
+    }
+    let data: IndexTemplate = serde_json::from_reader(fs::File::open(&path)?)?;
+    // Cache for 30 days
+    conn.set_ex(&cache_key, serde_json::to_string(&data)?, 60 * 60 * 24 * 30)?;
+
+    Ok(data)
+}
+
 fn commafy(args: HashMap<String, Value>) -> TeraResult<Value> {
     match args.get("num") {
         Some(val) => Ok(val.separate_with_commas().into()),
@@ -85,15 +109,18 @@ fn commafy(args: HashMap<String, Value>) -> TeraResult<Value> {
 }
 
 fn parse_date(fname: &str) -> Result<Date<Utc>> {
-    Ok(Utc.from_utc_date(&NaiveDate::parse_from_str(fname, "shorturls-%Y%m%d.gz.data")?))
+    Ok(Utc.from_utc_date(&NaiveDate::parse_from_str(
+        fname,
+        "shorturls-%Y%m%d.gz.data",
+    )?))
 }
 
 #[get("/chart.svg")]
-fn chart_svg() -> Content<String> {
-    Content(ContentType::SVG, chart2().unwrap())
+fn chart_svg(conn: RedisCache) -> Content<String> {
+    Content(ContentType::SVG, chart2(conn).unwrap())
 }
 
-fn chart2() -> Result<String> {
+fn chart2(conn: RedisCache) -> Result<String> {
     use plotters::prelude::*;
     let mut buf = String::new();
     {
@@ -106,7 +133,7 @@ fn chart2() -> Result<String> {
         for data in find_data()? {
             let date = parse_date(&data.file_name().unwrap().to_str().unwrap())?;
             domain.push(date);
-            let info = get_data(data)?;
+            let info = get_data(data, &conn)?;
             datapoints.push((date, info.total as f32));
             final_total = info.total as f32;
         }
@@ -135,6 +162,7 @@ fn main() {
         .attach(Template::custom(|engines| {
             engines.tera.register_function("commafy", Box::new(commafy));
         }))
+        .attach(RedisCache::fairing())
         .mount("/", routes![index, index_api, chart_svg])
         .launch();
 }

@@ -41,7 +41,3 @@ pub fn find_data() -> Result<Vec<PathBuf>> {
     files.sort();
     Ok(files)
 }
-
-pub fn get_data(path: PathBuf) -> Result<IndexTemplate> {
-    return Ok(serde_json::from_reader(fs::File::open(path)?)?);
-}
