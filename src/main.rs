@@ -20,7 +20,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::Result;
 use chrono::{Date, NaiveDate, TimeZone, Utc};
-use flate2::read::GzDecoder;
 use rocket::{http::ContentType, response::Content};
 use rocket_contrib::json::Json;
 use rocket_contrib::templates::{
@@ -28,24 +27,12 @@ use rocket_contrib::templates::{
     Template,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, io, io::BufRead, path::PathBuf};
+use shorturls::{find_data, get_data, IndexTemplate};
+use std::{collections::HashMap, path::PathBuf};
 use thousands::Separable;
-use url::Url;
 
 #[macro_use]
 extern crate rocket;
-
-#[derive(Serialize, Deserialize)]
-struct IndexTemplate {
-    stats: Vec<DomainInfo>,
-    total: i32,
-}
-
-#[derive(Serialize, Deserialize)]
-struct DomainInfo {
-    domain: String,
-    count: i32,
-}
 
 #[derive(Serialize, Deserialize)]
 struct ErrorTemplate {
@@ -70,7 +57,7 @@ fn index_api() -> Result<Json<IndexTemplate>> {
 }
 
 fn build_index() -> Result<IndexTemplate, ErrorTemplate> {
-    let latest = match get_latest_dump() {
+    let latest = match get_latest_data() {
         Ok(latest) => latest,
         Err(e) => {
             return Err(ErrorTemplate {
@@ -78,7 +65,7 @@ fn build_index() -> Result<IndexTemplate, ErrorTemplate> {
             })
         }
     };
-    match get_info(latest) {
+    match get_data(latest) {
         Ok(info) => Ok(info),
         Err(e) => Err(ErrorTemplate {
             error: e.to_string(),
@@ -86,72 +73,8 @@ fn build_index() -> Result<IndexTemplate, ErrorTemplate> {
     }
 }
 
-fn find_dumps() -> Result<Vec<PathBuf>> {
-    let mut files: Vec<PathBuf> = fs::read_dir("/public/dumps/public/other/shorturls")?
-        .filter(|f| f.is_ok())
-        .map(|f| f.unwrap().path())
-        .filter(|f| f.to_str().unwrap().ends_with(".gz"))
-        .collect();
-    files.sort();
-    Ok(files)
-}
-
-fn get_info(path: PathBuf) -> Result<IndexTemplate> {
-    let cache = format!(
-        "./cache/{}.cache",
-        path.file_name().unwrap().to_str().unwrap()
-    );
-    //    let cache = format!("{}.cache", path.to_str().unwrap());
-    if let Ok(file) = fs::File::open(&cache) {
-        return Ok(serde_json::from_reader(file)?);
-    }
-    let gz = GzDecoder::new(fs::File::open(path)?);
-    let buffered = io::BufReader::new(gz);
-    let mut counts: HashMap<String, i32> = HashMap::new();
-    for rline in buffered.lines() {
-        let line = rline?;
-        let sp: Vec<&str> = line.splitn(2, '|').collect();
-        let parsed = match Url::parse(sp[1]) {
-            Ok(url) => url,
-            // In theory this shouldn't be possible since UrlShortener
-            // should validate URLs, but it happens. TODO: Report this
-            // upstream...to me.
-            Err(_) => {
-                continue;
-            }
-        };
-        let domain = match parsed.host_str() {
-            Some(domain) => domain.to_string(),
-            None => {
-                continue;
-            }
-        };
-        let counter = counts.entry(domain).or_insert(0);
-        *counter += 1;
-    }
-    let mut entries: Vec<DomainInfo> = counts
-        .iter()
-        .map(|(domain, count)| DomainInfo {
-            domain: domain.to_string(),
-            count: *count,
-        })
-        .collect();
-    let mut total: i32 = 0;
-    for entry in &entries {
-        total += entry.count;
-    }
-    entries.sort_by(|a, b| b.count.cmp(&a.count));
-    let index = IndexTemplate {
-        stats: entries,
-        total,
-    };
-    // Save to cache
-    serde_json::to_writer(fs::File::create(&cache)?, &index)?;
-    Ok(index)
-}
-
-fn get_latest_dump() -> Result<PathBuf> {
-    Ok(find_dumps()?.pop().unwrap())
+fn get_latest_data() -> Result<PathBuf> {
+    Ok(find_data()?.pop().unwrap())
 }
 
 fn commafy(args: HashMap<String, Value>) -> TeraResult<Value> {
@@ -162,7 +85,7 @@ fn commafy(args: HashMap<String, Value>) -> TeraResult<Value> {
 }
 
 fn parse_date(fname: &str) -> Result<Date<Utc>> {
-    Ok(Utc.from_utc_date(&NaiveDate::parse_from_str(fname, "shorturls-%Y%m%d.gz")?))
+    Ok(Utc.from_utc_date(&NaiveDate::parse_from_str(fname, "shorturls-%Y%m%d.gz.data")?))
 }
 
 #[get("/chart.svg")]
@@ -177,14 +100,14 @@ fn chart2() -> Result<String> {
         let root_area = SVGBackend::with_string(&mut buf, (900, 300)).into_drawing_area();
         root_area.fill(&WHITE)?;
 
-        let mut data = Vec::new();
+        let mut datapoints = Vec::new();
         let mut domain = Vec::new();
         let mut final_total: f32 = 0.0;
-        for dump in find_dumps()? {
-            let date = parse_date(&dump.file_name().unwrap().to_str().unwrap())?;
+        for data in find_data()? {
+            let date = parse_date(&data.file_name().unwrap().to_str().unwrap())?;
             domain.push(date);
-            let info = get_info(dump)?;
-            data.push((date, info.total as f32));
+            let info = get_data(data)?;
+            datapoints.push((date, info.total as f32));
             final_total = info.total as f32;
         }
 
@@ -202,7 +125,7 @@ fn chart2() -> Result<String> {
             .disable_y_mesh()
             .draw()?;
 
-        ctx.draw_series(LineSeries::new(data, &BLUE))?;
+        ctx.draw_series(LineSeries::new(datapoints, &BLUE))?;
     }
     Ok(buf)
 }

@@ -16,3 +16,7 @@ flate2 = "1.0.14"
 url = "2"
 anyhow = "1.0.31"
 thousands = "0.2.0"
+
+[[bin]]
+name = "extract-data"
+path = "src/bin/extract_data.rs"
