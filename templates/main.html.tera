@@ -22,7 +22,7 @@
                     {% for stuff in stats %}
                     <tr>
                         <td>{{loop.index}}</td>
-                        <td>{{stuff.domain}}</td>
+                        <td><a href="/{{stuff.domain}}"><code>{{stuff.domain}}</code></a></td>
                         <td>{{commafy(num=stuff.count)}}</td>
                     </tr>
                     {% endfor %}

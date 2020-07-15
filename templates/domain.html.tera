@@ -1,0 +1,21 @@
+{% extends "base" %}
+{% block title %}w.wiki statistics: {{domain}}{% endblock %}
+{% block content %}
+    <h1 class="text-center">w.wiki statistics: {{domain}}</h1>
+    <p class="text-center">&lt; <a href="/">Back to main</a></p>
+    <p class="text-center">
+        The <a href="https://w.wiki">w.wiki</a> URL shortener allows creating short links to
+        <a href="https://{{domain}}">{{domain}}</a>. In the latest dump, there were
+        {{commafy(num=count)}} short links to that domain. New data is available weekly.
+    </p>
+    <div class="row">
+        <div class="col-md-6 col-md-offset-3">
+            <img class="img-responsive center-block" src="/{{domain}}/chart.svg">
+        </div>
+    </div>
+
+    <p class="text-center">
+        Licensed as AGPLv3+. <a href="/{{domain}}/api.json">API</a>.
+        View the <a href="https://gerrit.wikimedia.org/g/labs/tools/shorturls/">source code</a>, and the <a href="https://dumps.wikimedia.org/other/shorturls/">raw data</a>.
+    </p>
+{% endblock %}

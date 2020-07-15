@@ -22,12 +22,12 @@ use std::{fs, path::PathBuf};
 
 #[derive(Serialize, Deserialize)]
 pub struct IndexTemplate {
-    pub stats: Vec<DomainInfo>,
+    pub stats: Vec<DomainTemplate>,
     pub total: i32,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct DomainInfo {
+pub struct DomainTemplate {
     pub domain: String,
     pub count: i32,
 }

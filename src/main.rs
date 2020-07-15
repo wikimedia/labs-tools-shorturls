@@ -28,7 +28,7 @@ use rocket_contrib::templates::{
     Template,
 };
 use serde::{Deserialize, Serialize};
-use shorturls::{find_data, IndexTemplate};
+use shorturls::{find_data, DomainTemplate, IndexTemplate};
 use std::{collections::HashMap, fs, path::PathBuf};
 use thousands::Separable;
 
@@ -54,11 +54,54 @@ fn index(conn: RedisCache) -> Template {
     }
 }
 
+#[get("/<domain>")]
+fn domain(domain: String, conn: RedisCache) -> Template {
+    match build_domain(domain, conn) {
+        Ok(dinfo) => Template::render("domain", dinfo),
+        Err(error) => Template::render("error", error),
+    }
+}
+
+fn build_domain(domain: String, conn: RedisCache) -> Result<DomainTemplate, ErrorTemplate> {
+    let latest = match get_latest_data() {
+        Ok(latest) => latest,
+        Err(e) => {
+            return Err(ErrorTemplate {
+                error: e.to_string(),
+            })
+        }
+    };
+    match get_data(latest, &conn) {
+        Ok(info) => {
+            for dinfo in info.stats {
+                if dinfo.domain == domain {
+                    return Ok(dinfo);
+                }
+            }
+            Err(ErrorTemplate {
+                error: "Unknown domain specified".to_string(),
+            })
+        }
+        Err(e) => Err(ErrorTemplate {
+            error: e.to_string(),
+        }),
+    }
+}
+
 #[get("/api.json")]
 fn index_api(conn: RedisCache) -> Result<Json<IndexTemplate>> {
     // FIXME: Error handling
     match build_index(conn) {
         Ok(index) => Ok(Json(index)),
+        Err(error) => panic!(error.error),
+    }
+}
+
+#[get("/<domain>/api.json")]
+fn domain_api(domain: String, conn: RedisCache) -> Result<Json<DomainTemplate>> {
+    // FIXME: Error handling
+    match build_domain(domain, conn) {
+        Ok(dinfo) => Ok(Json(dinfo)),
         Err(error) => panic!(error.error),
     }
 }
@@ -117,10 +160,15 @@ fn parse_date(fname: &str) -> Result<Date<Utc>> {
 
 #[get("/chart.svg")]
 fn chart_svg(conn: RedisCache) -> Content<String> {
-    Content(ContentType::SVG, chart2(conn).unwrap())
+    Content(ContentType::SVG, chart2(conn, None).unwrap())
 }
 
-fn chart2(conn: RedisCache) -> Result<String> {
+#[get("/<domain>/chart.svg")]
+fn domain_chart_svg(domain: String, conn: RedisCache) -> Content<String> {
+    Content(ContentType::SVG, chart2(conn, Some(&domain)).unwrap())
+}
+
+fn chart2(conn: RedisCache, domain: Option<&str>) -> Result<String> {
     use plotters::prelude::*;
     let mut buf = String::new();
     {
@@ -128,18 +176,27 @@ fn chart2(conn: RedisCache) -> Result<String> {
         root_area.fill(&WHITE)?;
 
         let mut datapoints = Vec::new();
-        let mut domain = Vec::new();
+        let mut domainpoints = Vec::new();
+        let mut chart_domain = Vec::new();
         let mut final_total: f32 = 0.0;
         for data in find_data()? {
             let date = parse_date(&data.file_name().unwrap().to_str().unwrap())?;
-            domain.push(date);
+            chart_domain.push(date);
             let info = get_data(data, &conn)?;
             datapoints.push((date, info.total as f32));
             final_total = info.total as f32;
+            if let Some(host) = domain {
+                for dinfo in info.stats {
+                    if dinfo.domain == host {
+                        domainpoints.push((date, dinfo.count as f32));
+                        break;
+                    }
+                }
+            }
         }
 
-        let start_date = domain[0];
-        let end_date = domain.last().unwrap();
+        let start_date = chart_domain[0];
+        let end_date = chart_domain.last().unwrap();
 
         let mut ctx = ChartBuilder::on(&root_area)
             .set_label_area_size(LabelAreaPosition::Left, 60)
@@ -153,6 +210,10 @@ fn chart2(conn: RedisCache) -> Result<String> {
             .draw()?;
 
         ctx.draw_series(LineSeries::new(datapoints, &BLUE))?;
+
+        if domain.is_some() && !domainpoints.is_empty() {
+            ctx.draw_series(LineSeries::new(domainpoints, &GREEN))?;
+        }
     }
     Ok(buf)
 }
@@ -163,6 +224,16 @@ fn main() {
             engines.tera.register_function("commafy", Box::new(commafy));
         }))
         .attach(RedisCache::fairing())
-        .mount("/", routes![index, index_api, chart_svg])
+        .mount(
+            "/",
+            routes![
+                index,
+                index_api,
+                chart_svg,
+                domain,
+                domain_api,
+                domain_chart_svg
+            ],
+        )
         .launch();
 }

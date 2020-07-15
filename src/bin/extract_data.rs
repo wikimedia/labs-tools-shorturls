@@ -18,7 +18,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::Result;
 use flate2::read::GzDecoder;
-use shorturls::{DomainInfo, IndexTemplate};
+use shorturls::{DomainTemplate, IndexTemplate};
 use std::{collections::HashMap, fs, io, io::BufRead, path::PathBuf};
 use url::Url;
 
@@ -64,9 +64,9 @@ fn save_dump(path: PathBuf) -> Result<()> {
         let counter = counts.entry(domain).or_insert(0);
         *counter += 1;
     }
-    let mut entries: Vec<DomainInfo> = counts
+    let mut entries: Vec<DomainTemplate> = counts
         .iter()
-        .map(|(domain, count)| DomainInfo {
+        .map(|(domain, count)| DomainTemplate {
             domain: domain.to_string(),
             count: *count,
         })
