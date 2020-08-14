@@ -1,5 +1,0 @@
-[production.databases]
-cache = { url = "redis://tools-redis:6379/" }
-
-[development.databases]
-cache = { url = "redis://127.0.0.1:6379/" }

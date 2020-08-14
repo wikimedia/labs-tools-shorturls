@@ -16,12 +16,10 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#![feature(proc_macro_hygiene, decl_macro)]
-
 use anyhow::Result;
 use chrono::{Date, NaiveDate, TimeZone, Utc};
+use redis::Commands;
 use rocket::{http::ContentType, response::Content};
-use rocket_contrib::databases::{redis, redis::Commands};
 use rocket_contrib::json::Json;
 use rocket_contrib::templates::{
     tera::{Result as TeraResult, Value},
@@ -35,39 +33,47 @@ use thousands::Separable;
 #[macro_use]
 extern crate rocket;
 
-#[macro_use]
 extern crate rocket_contrib;
-
-#[database("cache")]
-struct RedisCache(redis::Connection);
 
 #[derive(Serialize, Deserialize)]
 struct ErrorTemplate {
     error: String,
 }
 
+fn connect_redis() -> Result<redis::Client> {
+    Ok(redis::Client::open("redis://tools-redis:6379/")?)
+}
+
 #[get("/")]
-fn index(conn: RedisCache) -> Template {
-    match build_index(conn) {
+fn index() -> Template {
+    match build_index() {
         Ok(index) => Template::render("main", index),
         Err(error) => Template::render("error", error),
     }
 }
 
 #[get("/<domain>")]
-fn domain(domain: String, conn: RedisCache) -> Template {
-    match build_domain(domain, conn) {
+fn domain(domain: String) -> Template {
+    match build_domain(domain) {
         Ok(dinfo) => Template::render("domain", dinfo),
         Err(error) => Template::render("error", error),
     }
 }
 
-fn build_domain(domain: String, conn: RedisCache) -> Result<DomainTemplate, ErrorTemplate> {
+fn build_domain(domain: String) -> Result<DomainTemplate, ErrorTemplate> {
     let latest = match get_latest_data() {
         Ok(latest) => latest,
         Err(e) => {
             return Err(ErrorTemplate {
                 error: e.to_string(),
+            })
+        }
+    };
+    let conn = match connect_redis() {
+        Ok(conn) => conn,
+        Err(err) => {
+            return Err(ErrorTemplate {
+                error: err.to_string(),
             })
         }
     };
@@ -89,29 +95,37 @@ fn build_domain(domain: String, conn: RedisCache) -> Result<DomainTemplate, Erro
 }
 
 #[get("/api.json")]
-fn index_api(conn: RedisCache) -> Result<Json<IndexTemplate>> {
+fn index_api() -> Json<IndexTemplate> {
     // FIXME: Error handling
-    match build_index(conn) {
-        Ok(index) => Ok(Json(index)),
+    match build_index() {
+        Ok(index) => Json(index),
         Err(error) => panic!(error.error),
     }
 }
 
 #[get("/<domain>/api.json")]
-fn domain_api(domain: String, conn: RedisCache) -> Result<Json<DomainTemplate>> {
+fn domain_api(domain: String) -> Json<DomainTemplate> {
     // FIXME: Error handling
-    match build_domain(domain, conn) {
-        Ok(dinfo) => Ok(Json(dinfo)),
+    match build_domain(domain) {
+        Ok(dinfo) => Json(dinfo),
         Err(error) => panic!(error.error),
     }
 }
 
-fn build_index(conn: RedisCache) -> Result<IndexTemplate, ErrorTemplate> {
+fn build_index() -> Result<IndexTemplate, ErrorTemplate> {
     let latest = match get_latest_data() {
         Ok(latest) => latest,
         Err(e) => {
             return Err(ErrorTemplate {
                 error: e.to_string(),
+            })
+        }
+    };
+    let conn = match connect_redis() {
+        Ok(conn) => conn,
+        Err(err) => {
+            return Err(ErrorTemplate {
+                error: err.to_string(),
             })
         }
     };
@@ -127,8 +141,9 @@ fn get_latest_data() -> Result<PathBuf> {
     Ok(find_data()?.pop().unwrap())
 }
 
-fn get_data(path: PathBuf, conn: &RedisCache) -> Result<IndexTemplate> {
+fn get_data(path: PathBuf, client: &redis::Client) -> Result<IndexTemplate> {
     let cache_key = format!("shorturls:{}", path.to_str().unwrap());
+    let mut conn = client.get_connection()?;
     let info: Option<String> = conn.get(&cache_key)?;
     if let Some(json) = info {
         // If we can deserialize it, return , otherwise we'll just reread
@@ -144,7 +159,7 @@ fn get_data(path: PathBuf, conn: &RedisCache) -> Result<IndexTemplate> {
     Ok(data)
 }
 
-fn commafy(args: HashMap<String, Value>) -> TeraResult<Value> {
+fn commafy(args: &HashMap<String, Value>) -> TeraResult<Value> {
     match args.get("num") {
         Some(val) => Ok(val.separate_with_commas().into()),
         None => Err("No value provided".into()),
@@ -159,19 +174,20 @@ fn parse_date(fname: &str) -> Result<Date<Utc>> {
 }
 
 #[get("/chart.svg")]
-fn chart_svg(conn: RedisCache) -> Content<String> {
-    Content(ContentType::SVG, chart2(conn, None).unwrap())
+fn chart_svg() -> Content<String> {
+    Content(ContentType::SVG, chart2(None).unwrap())
 }
 
 #[get("/<domain>/chart.svg")]
-fn domain_chart_svg(domain: String, conn: RedisCache) -> Content<String> {
-    Content(ContentType::SVG, chart2(conn, Some(&domain)).unwrap())
+fn domain_chart_svg(domain: String) -> Content<String> {
+    Content(ContentType::SVG, chart2(Some(&domain)).unwrap())
 }
 
-fn chart2(conn: RedisCache, domain: Option<&str>) -> Result<String> {
+fn chart2(domain: Option<&str>) -> Result<String> {
     use plotters::prelude::*;
     let mut buf = String::new();
     {
+        let conn = connect_redis()?;
         let root_area = SVGBackend::with_string(&mut buf, (900, 300)).into_drawing_area();
         root_area.fill(&WHITE)?;
 
@@ -218,12 +234,12 @@ fn chart2(conn: RedisCache, domain: Option<&str>) -> Result<String> {
     Ok(buf)
 }
 
-fn main() {
+#[launch]
+fn rocket() -> rocket::Rocket {
     rocket::ignite()
         .attach(Template::custom(|engines| {
             engines.tera.register_function("commafy", Box::new(commafy));
         }))
-        .attach(RedisCache::fairing())
         .mount(
             "/",
             routes![
@@ -235,5 +251,4 @@ fn main() {
                 domain_chart_svg
             ],
         )
-        .launch();
 }
