@@ -1,4 +1,0 @@
-flask
-flask_bootstrap
-flask-dataapi
-matplotlib
