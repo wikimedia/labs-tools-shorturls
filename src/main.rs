@@ -40,6 +40,7 @@ struct ErrorTemplate {
     error: String,
 }
 
+/// Connect to `tools-redis`
 fn connect_redis() -> Result<redis::Client> {
     Ok(redis::Client::open("redis://tools-redis:6379/")?)
 }
@@ -60,6 +61,7 @@ fn domain(domain: String) -> Template {
     }
 }
 
+/// Build the template for a domain page (e.g. `/query.wikidata.org`)
 fn build_domain(domain: String) -> Result<DomainTemplate, ErrorTemplate> {
     let latest = match get_latest_data() {
         Ok(latest) => latest,
@@ -112,6 +114,7 @@ fn domain_api(domain: String) -> Json<DomainTemplate> {
     }
 }
 
+/// Build the index template (`/`)
 fn build_index() -> Result<IndexTemplate, ErrorTemplate> {
     let latest = match get_latest_data() {
         Ok(latest) => latest,
@@ -137,10 +140,12 @@ fn build_index() -> Result<IndexTemplate, ErrorTemplate> {
     }
 }
 
+/// get filename for the most recent data file
 fn get_latest_data() -> Result<PathBuf> {
     Ok(find_data()?.pop().unwrap())
 }
 
+/// Get the data out of a data file, caching it in Redis if necessary
 fn get_data(path: PathBuf, client: &redis::Client) -> Result<IndexTemplate> {
     let cache_key = format!("shorturls:{}", path.to_str().unwrap());
     let mut conn = client.get_connection()?;
@@ -159,6 +164,7 @@ fn get_data(path: PathBuf, client: &redis::Client) -> Result<IndexTemplate> {
     Ok(data)
 }
 
+/// tera template helper to stick commas into large numbers
 fn commafy(args: &HashMap<String, Value>) -> TeraResult<Value> {
     match args.get("num") {
         Some(val) => Ok(val.separate_with_commas().into()),
@@ -166,6 +172,7 @@ fn commafy(args: &HashMap<String, Value>) -> TeraResult<Value> {
     }
 }
 
+/// parse the date out of data file names
 fn parse_date(fname: &str) -> Result<Date<Utc>> {
     Ok(Utc.from_utc_date(&NaiveDate::parse_from_str(
         fname,
@@ -183,6 +190,7 @@ fn domain_chart_svg(domain: String) -> Content<String> {
     Content(ContentType::SVG, chart2(Some(&domain)).unwrap())
 }
 
+/// Generate an SVG chart
 fn chart2(domain: Option<&str>) -> Result<String> {
     use plotters::prelude::*;
     let mut buf = String::new();

@@ -16,12 +16,15 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+//! CLI script run as a cron job to parse dumps and save them as data files
+
 use anyhow::Result;
 use flate2::read::GzDecoder;
 use shorturls::{DomainTemplate, IndexTemplate};
 use std::{collections::HashMap, fs, io, io::BufRead, path::PathBuf};
 use url::Url;
 
+/// Get a sorted list of all the available dumps
 fn find_dumps() -> Result<Vec<PathBuf>> {
     let mut files: Vec<PathBuf> = fs::read_dir("/public/dumps/public/other/shorturls")?
         .filter(|f| f.is_ok())
@@ -32,6 +35,7 @@ fn find_dumps() -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
+/// Parse a dump into a data file
 fn save_dump(path: PathBuf) -> Result<()> {
     let data = format!(
         "./data/{}.data",
