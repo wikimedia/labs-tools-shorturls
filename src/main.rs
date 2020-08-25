@@ -75,7 +75,7 @@ fn build_domain(domain: String) -> Result<DomainTemplate, ErrorTemplate> {
         Ok(conn) => conn,
         Err(err) => {
             return Err(ErrorTemplate {
-                error: err.to_string(),
+                error: format!("redis error: {}", err.to_string()),
             })
         }
     };
