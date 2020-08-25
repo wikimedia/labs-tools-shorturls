@@ -42,14 +42,27 @@ struct ErrorTemplate {
 
 /// Connect to `tools-redis`
 fn connect_redis() -> Result<redis::Client> {
-    Ok(redis::Client::open("redis://tools-redis:6379/")?)
+    let host = if std::path::Path::new("/etc/wmcs-project").exists() {
+        "tools-redis"
+    } else {
+        "127.0.0.1"
+    };
+    Ok(redis::Client::open(format!("redis://{}:6379/", host))?)
 }
 
 #[get("/")]
 fn index() -> Template {
     match build_index() {
         Ok(index) => Template::render("main", index),
-        Err(error) => Template::render("error", error),
+        Err(err) => {
+            dbg!(&err);
+            Template::render(
+                "error",
+                ErrorTemplate {
+                    error: err.to_string(),
+                },
+            )
+        }
     }
 }
 
@@ -71,15 +84,15 @@ fn build_domain(domain: String) -> Result<DomainTemplate, ErrorTemplate> {
             })
         }
     };
-    let conn = match connect_redis() {
-        Ok(conn) => conn,
+    let client = match connect_redis() {
+        Ok(client) => client,
         Err(err) => {
             return Err(ErrorTemplate {
                 error: format!("redis error: {}", err.to_string()),
-            })
+            });
         }
     };
-    match get_data(latest, &conn) {
+    match get_data(latest, &client) {
         Ok(info) => {
             for dinfo in info.stats {
                 if dinfo.domain == domain {
@@ -101,7 +114,7 @@ fn index_api() -> Json<IndexTemplate> {
     // FIXME: Error handling
     match build_index() {
         Ok(index) => Json(index),
-        Err(error) => panic!(error.error),
+        Err(error) => panic!(error.to_string()),
     }
 }
 
@@ -115,29 +128,10 @@ fn domain_api(domain: String) -> Json<DomainTemplate> {
 }
 
 /// Build the index template (`/`)
-fn build_index() -> Result<IndexTemplate, ErrorTemplate> {
-    let latest = match get_latest_data() {
-        Ok(latest) => latest,
-        Err(e) => {
-            return Err(ErrorTemplate {
-                error: e.to_string(),
-            })
-        }
-    };
-    let conn = match connect_redis() {
-        Ok(conn) => conn,
-        Err(err) => {
-            return Err(ErrorTemplate {
-                error: err.to_string(),
-            })
-        }
-    };
-    match get_data(latest, &conn) {
-        Ok(info) => Ok(info),
-        Err(e) => Err(ErrorTemplate {
-            error: e.to_string(),
-        }),
-    }
+fn build_index() -> Result<IndexTemplate> {
+    let latest = get_latest_data()?;
+    let client = connect_redis()?;
+    Ok(get_data(latest, &client)?)
 }
 
 /// get filename for the most recent data file
@@ -148,18 +142,31 @@ fn get_latest_data() -> Result<PathBuf> {
 /// Get the data out of a data file, caching it in Redis if necessary
 fn get_data(path: PathBuf, client: &redis::Client) -> Result<IndexTemplate> {
     let cache_key = format!("shorturls:{}", path.to_str().unwrap());
-    let mut conn = client.get_connection()?;
-    let info: Option<String> = conn.get(&cache_key)?;
-    if let Some(json) = info {
-        // If we can deserialize it, return , otherwise we'll just reread
-        // it from disk
-        if let Ok(val) = serde_json::from_str(&json) {
-            return Ok(val);
+    let data = match client.get_connection() {
+        Ok(mut conn) => {
+            let info: Option<String> = conn.get(&cache_key)?;
+            if let Some(json) = info {
+                // If we can deserialize it, return , otherwise we'll just reread
+                // it from disk
+                if let Ok(val) = serde_json::from_str(&json) {
+                    return Ok(val);
+                }
+            }
+
+            let data: IndexTemplate = serde_json::from_reader(fs::File::open(&path)?)?;
+
+            // Cache for 30 days
+            conn.set_ex(&cache_key, serde_json::to_string(&data)?, 60 * 60 * 24 * 30)?;
+
+            data
         }
-    }
-    let data: IndexTemplate = serde_json::from_reader(fs::File::open(&path)?)?;
-    // Cache for 30 days
-    conn.set_ex(&cache_key, serde_json::to_string(&data)?, 60 * 60 * 24 * 30)?;
+        // Couldn't connect to redis, run without caching
+        Err(err) => {
+            dbg!(&err);
+            // XXX: Can we avoid duplication here?
+            serde_json::from_reader(fs::File::open(&path)?)?
+        }
+    };
 
     Ok(data)
 }
@@ -195,7 +202,7 @@ fn chart2(domain: Option<&str>) -> Result<String> {
     use plotters::prelude::*;
     let mut buf = String::new();
     {
-        let conn = connect_redis()?;
+        let client = connect_redis()?;
         let root_area = SVGBackend::with_string(&mut buf, (900, 300)).into_drawing_area();
         root_area.fill(&WHITE)?;
 
@@ -206,7 +213,7 @@ fn chart2(domain: Option<&str>) -> Result<String> {
         for data in find_data()? {
             let date = parse_date(&data.file_name().unwrap().to_str().unwrap())?;
             chart_domain.push(date);
-            let info = get_data(data, &conn)?;
+            let info = get_data(data, &client)?;
             datapoints.push((date, info.total as f32));
             final_total = info.total as f32;
             if let Some(host) = domain {
