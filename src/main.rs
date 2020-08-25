@@ -260,3 +260,16 @@ fn rocket() -> rocket::Rocket {
             ],
         )
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_commafy() {
+        let mut map: HashMap<String, Value> = HashMap::new();
+        map.insert("num".to_string(), Value::String("9999999".to_string()));
+        let result = commafy(&map);
+        assert_eq!(Value::String("\"9,999,999\"".to_string()), result.unwrap());
+    }
+}
