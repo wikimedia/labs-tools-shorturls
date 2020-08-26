@@ -17,6 +17,7 @@ flate2 = "1.0.14"
 url = "2"
 anyhow = "1.0.31"
 thousands = "0.2.0"
+rocket_healthz = "0.1.0"
 
 [[bin]]
 name = "extract-data"

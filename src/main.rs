@@ -249,6 +249,8 @@ fn chart2(domain: Option<&str>) -> Result<String> {
     Ok(buf)
 }
 
+rocket_healthz::healthz!();
+
 #[launch]
 fn rocket() -> rocket::Rocket {
     rocket::ignite()
@@ -263,7 +265,8 @@ fn rocket() -> rocket::Rocket {
                 chart_svg,
                 domain,
                 domain_api,
-                domain_chart_svg
+                domain_chart_svg,
+                rocket_healthz,
             ],
         )
 }

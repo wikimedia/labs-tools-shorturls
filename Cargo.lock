@@ -1545,6 +1545,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "rocket_healthz"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae182374c4f824f83e24e7ad95fcfe879fd0ce10839b55749fb1ddd86aaf2bc4"
+
+[[package]]
 name = "rocket_http"
 version = "0.5.0-dev"
 source = "git+https://github.com/SergioBenitez/Rocket?rev=549c9241c41320fc#549c9241c41320fc5af76b53c2ffc3bd8db88f8c"
@@ -1683,6 +1689,7 @@ dependencies = [
  "redis",
  "rocket",
  "rocket_contrib",
+ "rocket_healthz",
  "serde",
  "serde_json",
  "thousands",
