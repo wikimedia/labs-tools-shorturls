@@ -17,7 +17,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 use anyhow::Result;
-use chrono::{Date, NaiveDate, TimeZone, Utc};
+use chrono::NaiveDate;
 use redis::Commands;
 use rocket::{http::ContentType, response::Content};
 use rocket_contrib::json::Json;
@@ -180,11 +180,11 @@ fn commafy(args: &HashMap<String, Value>) -> TeraResult<Value> {
 }
 
 /// parse the date out of data file names
-fn parse_date(fname: &str) -> Result<Date<Utc>> {
-    Ok(Utc.from_utc_date(&NaiveDate::parse_from_str(
+fn parse_date(fname: &str) -> Result<NaiveDate> {
+    Ok(NaiveDate::parse_from_str(
         fname,
         "shorturls-%Y%m%d.gz.data",
-    )?))
+    )?)
 }
 
 #[get("/chart.svg")]
@@ -233,7 +233,7 @@ fn chart2(domain: Option<&str>) -> Result<String> {
             .set_label_area_size(LabelAreaPosition::Left, 60)
             .set_label_area_size(LabelAreaPosition::Bottom, 60)
             // Set the y-range from 0 to 105% of max so we don't cut off the top of the chart
-            .build_ranged(start_date..*end_date, 0.0..final_total * 1.05)?;
+            .build_cartesian_2d(start_date..*end_date, 0.0..final_total * 1.05)?;
 
         ctx.configure_mesh()
             .disable_x_mesh()
@@ -266,7 +266,7 @@ fn rocket() -> rocket::Rocket {
                 domain,
                 domain_api,
                 domain_chart_svg,
-                rocket_healthz,
+                healthz,
             ],
         )
 }
