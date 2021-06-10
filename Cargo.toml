@@ -6,9 +6,9 @@ edition = "2018"
 license = "AGPL-3.0-or-later"
 
 [dependencies]
-rocket = { git = "https://github.com/SergioBenitez/Rocket", rev = "c24f15c18f02319" }
-rocket_contrib = {git = "https://github.com/SergioBenitez/Rocket", rev = "c24f15c18f02319", default-features = false, features = ["json", "tera_templates"]}
-redis = "0.19.0"
+rocket = {version = "0.5.0-rc.1", features = ["json"]}
+rocket_dyn_templates = {version = "0.1.0-rc.1", features = ["tera"]}
+redis = {version = "0.20.0", features = ["aio", "tokio-comp"]}
 serde = {version = "1.0", features = ["derive"]}
 serde_json = "1.0"
 plotters = {version = "0.3", default-features = false, features = ["svg_backend", "datetime", "line_series"]}
@@ -17,7 +17,7 @@ flate2 = "1.0.14"
 url = "2"
 anyhow = "1.0.31"
 thousands = "0.2.0"
-rocket_healthz = "0.2.0"
+tokio = {version = "1.0", features = ["fs"]}
 
 [[bin]]
 name = "extract-data"

@@ -16,24 +16,22 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::NaiveDate;
-use redis::Commands;
-use rocket::{http::ContentType, response::Content};
-use rocket_contrib::json::Json;
-use rocket_contrib::templates::{
+use redis::AsyncCommands;
+use rocket::serde::{json::Json, Deserialize, Serialize};
+use rocket::{http::ContentType, response::content::Custom};
+use rocket_dyn_templates::{
     tera::{Result as TeraResult, Value},
     Template,
 };
-use serde::{Deserialize, Serialize};
 use shorturls::{find_data, DomainTemplate, IndexTemplate};
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 use thousands::Separable;
+use tokio::fs;
 
 #[macro_use]
 extern crate rocket;
-
-extern crate rocket_contrib;
 
 #[derive(Serialize, Deserialize)]
 struct ErrorTemplate {
@@ -51,8 +49,8 @@ fn connect_redis() -> Result<redis::Client> {
 }
 
 #[get("/")]
-fn index() -> Template {
-    match build_index() {
+async fn index() -> Template {
+    match build_index().await {
         Ok(index) => Template::render("main", index),
         Err(err) => {
             dbg!(&err);
@@ -67,15 +65,15 @@ fn index() -> Template {
 }
 
 #[get("/<domain>")]
-fn domain(domain: String) -> Template {
-    match build_domain(domain) {
+async fn domain(domain: String) -> Template {
+    match build_domain(domain).await {
         Ok(dinfo) => Template::render("domain", dinfo),
         Err(error) => Template::render("error", error),
     }
 }
 
 /// Build the template for a domain page (e.g. `/query.wikidata.org`)
-fn build_domain(domain: String) -> Result<DomainTemplate, ErrorTemplate> {
+async fn build_domain(domain: String) -> Result<DomainTemplate, ErrorTemplate> {
     let latest = match get_latest_data() {
         Ok(latest) => latest,
         Err(e) => {
@@ -92,7 +90,7 @@ fn build_domain(domain: String) -> Result<DomainTemplate, ErrorTemplate> {
             });
         }
     };
-    match get_data(latest, &client) {
+    match get_data(latest, &client).await {
         Ok(info) => {
             for dinfo in info.stats {
                 if dinfo.domain == domain {
@@ -110,41 +108,43 @@ fn build_domain(domain: String) -> Result<DomainTemplate, ErrorTemplate> {
 }
 
 #[get("/api.json")]
-fn index_api() -> Json<IndexTemplate> {
+async fn index_api() -> Json<IndexTemplate> {
     // FIXME: Error handling
-    match build_index() {
+    match build_index().await {
         Ok(index) => Json(index),
-        Err(error) => panic!(error.to_string()),
+        Err(error) => panic!("{}", error),
     }
 }
 
 #[get("/<domain>/api.json")]
-fn domain_api(domain: String) -> Json<DomainTemplate> {
+async fn domain_api(domain: String) -> Json<DomainTemplate> {
     // FIXME: Error handling
-    match build_domain(domain) {
+    match build_domain(domain).await {
         Ok(dinfo) => Json(dinfo),
-        Err(error) => panic!(error.error),
+        Err(error) => panic!("{}", error.error),
     }
 }
 
 /// Build the index template (`/`)
-fn build_index() -> Result<IndexTemplate> {
+async fn build_index() -> Result<IndexTemplate> {
     let latest = get_latest_data()?;
     let client = connect_redis()?;
-    Ok(get_data(latest, &client)?)
+    get_data(latest, &client).await
 }
 
 /// get filename for the most recent data file
 fn get_latest_data() -> Result<PathBuf> {
-    Ok(find_data()?.pop().unwrap())
+    find_data()?
+        .pop()
+        .ok_or_else(|| anyhow!("Could not find latest data"))
 }
 
 /// Get the data out of a data file, caching it in Redis if necessary
-fn get_data(path: PathBuf, client: &redis::Client) -> Result<IndexTemplate> {
+async fn get_data(path: PathBuf, client: &redis::Client) -> Result<IndexTemplate> {
     let cache_key = format!("shorturls:{}", path.to_str().unwrap());
-    let data = match client.get_connection() {
+    let data = match client.get_async_connection().await {
         Ok(mut conn) => {
-            let info: Option<String> = conn.get(&cache_key)?;
+            let info: Option<String> = conn.get(&cache_key).await?;
             if let Some(json) = info {
                 // If we can deserialize it, return , otherwise we'll just reread
                 // it from disk
@@ -153,10 +153,11 @@ fn get_data(path: PathBuf, client: &redis::Client) -> Result<IndexTemplate> {
                 }
             }
 
-            let data: IndexTemplate = serde_json::from_reader(fs::File::open(&path)?)?;
+            let data: IndexTemplate = serde_json::from_str(&fs::read_to_string(&path).await?)?;
 
             // Cache for 30 days
-            conn.set_ex(&cache_key, serde_json::to_string(&data)?, 60 * 60 * 24 * 30)?;
+            conn.set_ex(&cache_key, serde_json::to_string(&data)?, 60 * 60 * 24 * 30)
+                .await?;
 
             data
         }
@@ -164,7 +165,7 @@ fn get_data(path: PathBuf, client: &redis::Client) -> Result<IndexTemplate> {
         Err(err) => {
             dbg!(&err);
             // XXX: Can we avoid duplication here?
-            serde_json::from_reader(fs::File::open(&path)?)?
+            serde_json::from_str(&fs::read_to_string(&path).await?)?
         }
     };
 
@@ -188,23 +189,21 @@ fn parse_date(fname: &str) -> Result<NaiveDate> {
 }
 
 #[get("/chart.svg")]
-fn chart_svg() -> Content<String> {
-    Content(ContentType::SVG, chart2(None).unwrap())
+async fn chart_svg() -> Custom<String> {
+    Custom(ContentType::SVG, chart2(None).await.unwrap())
 }
 
 #[get("/<domain>/chart.svg")]
-fn domain_chart_svg(domain: String) -> Content<String> {
-    Content(ContentType::SVG, chart2(Some(&domain)).unwrap())
+async fn domain_chart_svg(domain: String) -> Custom<String> {
+    Custom(ContentType::SVG, chart2(Some(&domain)).await.unwrap())
 }
 
 /// Generate an SVG chart
-fn chart2(domain: Option<&str>) -> Result<String> {
+async fn chart2(domain: Option<&str>) -> Result<String> {
     use plotters::prelude::*;
     let mut buf = String::new();
     {
         let client = connect_redis()?;
-        let root_area = SVGBackend::with_string(&mut buf, (900, 300)).into_drawing_area();
-        root_area.fill(&WHITE)?;
 
         let mut datapoints = Vec::new();
         let mut domainpoints = Vec::new();
@@ -213,7 +212,7 @@ fn chart2(domain: Option<&str>) -> Result<String> {
         for data in find_data()? {
             let date = parse_date(&data.file_name().unwrap().to_str().unwrap())?;
             chart_domain.push(date);
-            let info = get_data(data, &client)?;
+            let info = get_data(data, &client).await?;
             datapoints.push((date, info.total as f32));
             final_total = info.total as f32;
             if let Some(host) = domain {
@@ -229,6 +228,8 @@ fn chart2(domain: Option<&str>) -> Result<String> {
         let start_date = chart_domain[0];
         let end_date = chart_domain.last().unwrap();
 
+        let root_area = SVGBackend::with_string(&mut buf, (900, 300)).into_drawing_area();
+        root_area.fill(&WHITE)?;
         let mut ctx = ChartBuilder::on(&root_area)
             .set_label_area_size(LabelAreaPosition::Left, 60)
             .set_label_area_size(LabelAreaPosition::Bottom, 60)
@@ -249,11 +250,14 @@ fn chart2(domain: Option<&str>) -> Result<String> {
     Ok(buf)
 }
 
-rocket_healthz::healthz!();
+#[get("/healthz")]
+fn healthz() -> &'static str {
+    "OK"
+}
 
 #[launch]
-fn rocket() -> rocket::Rocket {
-    rocket::ignite()
+fn rocket() -> _ {
+    rocket::build()
         .attach(Template::custom(|engines| {
             engines.tera.register_function("commafy", Box::new(commafy));
         }))
