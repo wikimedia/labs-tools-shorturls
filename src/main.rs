@@ -210,7 +210,7 @@ async fn chart2(domain: Option<&str>) -> Result<String> {
         let mut chart_domain = Vec::new();
         let mut final_total: f32 = 0.0;
         for data in find_data()? {
-            let date = parse_date(&data.file_name().unwrap().to_str().unwrap())?;
+            let date = parse_date(data.file_name().unwrap().to_str().unwrap())?;
             chart_domain.push(date);
             let info = get_data(data, &client).await?;
             datapoints.push((date, info.total as f32));
