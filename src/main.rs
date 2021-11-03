@@ -129,7 +129,15 @@ async fn domain_api(domain: String) -> Json<DomainTemplate> {
 async fn build_index() -> Result<IndexTemplate> {
     let latest = get_latest_data()?;
     let client = connect_redis()?;
-    get_data(latest, &client).await
+    let mut data = get_data(latest, &client).await?;
+    // Hide domains with less than 10 short URLs
+    let stats = data
+        .stats
+        .into_iter()
+        .filter(|domain| domain.count >= 10)
+        .collect();
+    data.stats = stats;
+    Ok(data)
 }
 
 /// get filename for the most recent data file
