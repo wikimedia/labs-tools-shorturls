@@ -19,8 +19,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use anyhow::{anyhow, Result};
 use chrono::NaiveDate;
 use redis::AsyncCommands;
+use rocket::http::ContentType;
 use rocket::serde::{json::Json, Deserialize, Serialize};
-use rocket::{http::ContentType, response::content::Custom};
 use rocket_dyn_templates::{
     tera::{Result as TeraResult, Value},
     Template,
@@ -86,7 +86,7 @@ async fn build_domain(domain: String) -> Result<DomainTemplate, ErrorTemplate> {
         Ok(client) => client,
         Err(err) => {
             return Err(ErrorTemplate {
-                error: format!("redis error: {}", err.to_string()),
+                error: format!("redis error: {}", err),
             });
         }
     };
@@ -197,13 +197,13 @@ fn parse_date(fname: &str) -> Result<NaiveDate> {
 }
 
 #[get("/chart.svg")]
-async fn chart_svg() -> Custom<String> {
-    Custom(ContentType::SVG, chart2(None).await.unwrap())
+async fn chart_svg() -> (ContentType, String) {
+    (ContentType::SVG, chart2(None).await.unwrap())
 }
 
 #[get("/<domain>/chart.svg")]
-async fn domain_chart_svg(domain: String) -> Custom<String> {
-    Custom(ContentType::SVG, chart2(Some(&domain)).await.unwrap())
+async fn domain_chart_svg(domain: String) -> (ContentType, String) {
+    (ContentType::SVG, chart2(Some(&domain)).await.unwrap())
 }
 
 /// Generate an SVG chart
